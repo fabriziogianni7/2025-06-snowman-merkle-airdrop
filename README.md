@@ -51,7 +51,7 @@ Goodluck ⛄
 ```bash
     git clone https://github.com/CodeHawks-Contests/2025-06-snowman-merkle-airdrop.git 
     cd 2025-06-snowman-merkle-airdrop
-    forge install
+    git submodule update --init --recursive
     forge build
     forge test
 ```
