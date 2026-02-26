@@ -38,6 +38,7 @@ contract Snow is ERC20, Ownable {
 
     // >>> EVENTS
     event SnowBought(address indexed buyer, uint256 indexed amount);
+    // note snowEarned and FeeCollected are never used, missing events in earnSnow() and collectFee()
     event SnowEarned(address indexed earner, uint256 indexed amount);
     event FeeCollected();
     event NewCollector(address indexed newCollector);
@@ -70,13 +71,15 @@ contract Snow is ERC20, Ownable {
         }
 
         i_weth = IERC20(_weth);
-        s_buyFee = _buyFee * PRECISION;
+        s_buyFee = _buyFee * PRECISION; //todo _buy fee in deploy script is 5, so it would be 5e18
         s_collector = _collector;
         i_farmingOver = block.timestamp + FARMING_DURATION; // Snow farming eands 12 weeks after deployment
     }
 
     // >>> EXTERNAL FUNCTIONS
+    // note why are we using canFarmSnow here (its just buying here)
     function buySnow(uint256 amount) external payable canFarmSnow {
+        //bug probably some error here, fees are calculated in a weird way, it acts as a multiplier
         if (msg.value == (s_buyFee * amount)) {
             _mint(msg.sender, amount);
         } else {
@@ -84,28 +87,43 @@ contract Snow is ERC20, Ownable {
             _mint(msg.sender, amount);
         }
 
+        //note what is s_earnTimer doing??
         s_earnTimer = block.timestamp;
 
         emit SnowBought(msg.sender, amount);
     }
 
     function earnSnow() external canFarmSnow {
+        // note why are we using this check??
+        // note in what cases the user can earn snow?
+        // The `Snow` token can either be earned for free onece a week, 
+        // or bought at anytime, up until during the `::FARMING_DURATION` is over.
+        // there should be a mapping user -> lastTimeEarned and check it, this way it doesnt work
+        // and we should remove `  s_earnTimer = block.timestamp;` at line 91
+        // bug intended “each user can earn once per week” behavior is broken.
+        // The fix would be per-user tracking (e.g. a mapping from user to last earn time) instead of a single global timer.
         if (s_earnTimer != 0 && block.timestamp < (s_earnTimer + 1 weeks)) {
             revert S__Timer();
         }
+
+        // bug possible reentrancy
         _mint(msg.sender, 1);
 
         s_earnTimer = block.timestamp;
     }
 
     function collectFee() external onlyCollector {
+        // note check if there are funds to collect first
         uint256 collection = i_weth.balanceOf(address(this));
+        // note use safetransfer
         i_weth.transfer(s_collector, collection);
 
+        // note check if there are funds to collect first
         (bool collected,) = payable(s_collector).call{value: address(this).balance}("");
         require(collected, "Fee collection failed!!!");
     }
 
+    //note it's better to use a 2 step approach here where the new collector has to accept the role, suggest using a Role based extension
     function changeCollector(address _newCollector) external onlyCollector {
         if (_newCollector == address(0)) {
             revert S__ZeroAddress();

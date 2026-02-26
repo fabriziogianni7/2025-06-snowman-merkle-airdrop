@@ -9,6 +9,7 @@ import {DeploySnowman} from "./DeploySnowman.s.sol";
 import {DeploySnow} from "./DeploySnow.s.sol";
 
 contract DeploySnowmanAirdrop is Script {
+    // note/todo verify that this is correct
     bytes32 private constant s_MERKLE_ROOT = 0xc0b6787abae0a5066bc2d09eaec944c58119dc18be796e93de5b2bf9f80ea79a; // Gotten from output.json
 
     SnowmanAirdrop airdrop;

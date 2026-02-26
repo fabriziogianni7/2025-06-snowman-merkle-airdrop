@@ -39,13 +39,16 @@ contract SnowmanAirdrop is EIP712, ReentrancyGuard {
     }
 
     // >>> VARIABLES
+    // note s_claimers never used
     address[] private s_claimers; // array to store addresses of claimers
+    // note finding 004: i_merkleRoot is immutable; cannot update or fix wrong root
     bytes32 private immutable i_merkleRoot; // Merkle root used to validate airdrop claims
     Snow private immutable i_snow; // Snow token to be staked for the airdrop
     Snowman private immutable i_snowman; // Snowman nft to be claimed
 
     mapping(address => bool) private s_hasClaimedSnowman; // mapping to verify if an address has claimed Snowman
 
+    // bug (noted) typo addres should be address
     bytes32 private constant MESSAGE_TYPEHASH = keccak256("SnowmanClaim(addres receiver, uint256 amount)"); // keccak256 hash of the SnowmanClaim struct's type signature, used for EIP-712 compliant message signing
 
     // >>> EVENTS
@@ -66,10 +69,25 @@ contract SnowmanAirdrop is EIP712, ReentrancyGuard {
     }
 
     // >>> EXTERNAL FUNCTIONS
+    /** reasoning:
+    * Recipients stake their `Snow` tokens and receive `Snowman` NFTS equal to their `Snow` balance in return --> this is actually happening in Snowman.sol
+
+    what can go wrong in airdrop distribution?
+    1 people with the right to get the airdrop cannot claim --> bug (noted) not pass: the earnSnow is giving 1 snow per week to only one user, see Snow.sol::earnSnow()
+    2 airdrop is distributed to wrong people --> ok, we do check receiver in signature correctly 
+    3 airdrop is distributed multiple times, --> bug no signature nonce, 
+    4 is the amount distributed correct? --> if balance changes over time, user cannot claim, BUG
+    5 Source of funds - where the tokens come from? --> tokens get minted OK
+    6 Merkle root: who set/update the root? can be changed after deployment or is it fix? is there a timing for claiming? ---> bug root can't be updated; it doesnt look like there is a timing for it 
+    7 Access control - who can call the claim function --> looks good
+    
+         */
+    // hack finding 006: anyone can submit claim; front-run causes victim to waste gas on reverted tx
     function claimSnowman(address receiver, bytes32[] calldata merkleProof, uint8 v, bytes32 r, bytes32 s)
         external
         nonReentrant
     {
+
         if (receiver == address(0)) {
             revert SA__ZeroAddress();
         }
@@ -77,25 +95,30 @@ contract SnowmanAirdrop is EIP712, ReentrancyGuard {
             revert SA__ZeroAmount();
         }
 
+        // bug missing checks for replay attacks like nonce ecc -- we can use this signature more times
         if (!_isValidSignature(receiver, getMessageHash(receiver), v, r, s)) {
             revert SA__InvalidSignature();
         }
 
+        // note finding 005: amount from current balance; must match snapshot exactly or proof fails
         uint256 amount = i_snow.balanceOf(receiver);
 
+        // note - check it is resistant to 2nd preimage attacks - yes it is, correct hashing twice
         bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(receiver, amount))));
-
+        
+        // note verify if the i_merkleRoot need to be updated - it could cause new snow holders to be unable to claim
         if (!MerkleProof.verify(merkleProof, i_merkleRoot, leaf)) {
             revert SA__InvalidProof();
         }
 
+        // hack finding 007: approval + claim are separate txs; user can revoke before relayer's tx, relayer loses gas
         i_snow.safeTransferFrom(receiver, address(this), amount); // send tokens to contract... akin to burning
 
         s_hasClaimedSnowman[receiver] = true;
 
         emit SnowmanClaimedSuccessfully(receiver, amount);
 
-        i_snowman.mintSnowman(receiver, amount);
+        i_snowman.mintSnowman(receiver, amount); // note/bug if the amount is large this will likely be too expensive
     }
 
     // >>> INTERNAL FUNCTIONS
