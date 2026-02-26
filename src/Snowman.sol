@@ -17,7 +17,7 @@ import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
 contract Snowman is ERC721, Ownable {
     // >>> ERROR
     error ERC721Metadata__URI_QueryFor_NonExistentToken();
-    // note SM__NotAllowed error is never used
+    // note SM__NotAllowed error is never used (noted in 009)
     error SM__NotAllowed();
 
     // >>> VARIABLES
@@ -36,12 +36,13 @@ contract Snowman is ERC721, Ownable {
 
     // >>> EXTERNAL FUNCTIONS
     // bug missing validation for receiver and amount
+    // bug no access control
     function mintSnowman(address receiver, uint256 amount) external {
         // note why don't we use batch mint (ERC1155??) noted
         // bug this approach can likely cause a DOS (unbounded array) noted
         // bug it should only be possible for the snowmanAirdrop to call it noted
         for (uint256 i = 0; i < amount; i++) {
-            _safeMint(receiver, s_TokenCounter);
+            _safeMint(receiver, s_TokenCounter); //note this could be cached and reused to save a lot of gas
 
             emit SnowmanMinted(receiver, s_TokenCounter);
 
@@ -50,7 +51,11 @@ contract Snowman is ERC721, Ownable {
     }
 
     // >>> PUBLIC FUNCTIONS
+    // note tokeId is never used, different tokens have the same uri, 
+    // maybe we want to use it to get the value? but IDK if this makes sens
+    // ah ok this overrides the ERC721Metadata
     function tokenURI(uint256 tokenId) public view virtual override returns (string memory) {
+        // note 013: dead code, ownerOf reverts on non-existent token, never returns address(0)
         if (ownerOf(tokenId) == address(0)) {
             revert ERC721Metadata__URI_QueryFor_NonExistentToken(); 
         }
@@ -58,6 +63,7 @@ contract Snowman is ERC721, Ownable {
 
         // note why value": 100???
         // note not sure if that's the best way to do it
+        // note maybe value should be balanceOf(ownerOf(tokenId))
         return string(
             abi.encodePacked(
                 _baseURI(),

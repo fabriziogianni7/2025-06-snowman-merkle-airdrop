@@ -15,6 +15,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
+// note 021: Ownable inherited but no onlyOwner functions
 contract Snow is ERC20, Ownable {
     using SafeERC20 for IERC20;
 
@@ -38,7 +39,7 @@ contract Snow is ERC20, Ownable {
 
     // >>> EVENTS
     event SnowBought(address indexed buyer, uint256 indexed amount);
-    // note snowEarned and FeeCollected are never used, missing events in earnSnow() and collectFee()
+    // note 019: SnowEarned and FeeCollected never emitted
     event SnowEarned(address indexed earner, uint256 indexed amount);
     event FeeCollected();
     event NewCollector(address indexed newCollector);
@@ -78,11 +79,14 @@ contract Snow is ERC20, Ownable {
 
     // >>> EXTERNAL FUNCTIONS
     // note why are we using canFarmSnow here (its just buying here)
+    // hack 014: canFarmSnow should not apply to buySnow; users should be allowed to buy anytime
     function buySnow(uint256 amount) external payable canFarmSnow {
+        // note 020: amount can be 0, no-op
         //bug probably some error here, fees are calculated in a weird way, it acts as a multiplier
         if (msg.value == (s_buyFee * amount)) {
             _mint(msg.sender, amount);
         } else {
+            // note 018: require msg.value == 0 when using WETH path
             i_weth.safeTransferFrom(msg.sender, address(this), (s_buyFee * amount));
             _mint(msg.sender, amount);
         }
@@ -93,6 +97,7 @@ contract Snow is ERC20, Ownable {
         emit SnowBought(msg.sender, amount);
     }
 
+    // can this be subject to flash loans attack? not really because this would mint jjust 1 token 
     function earnSnow() external canFarmSnow {
         // note why are we using this check??
         // note in what cases the user can earn snow?
@@ -106,24 +111,25 @@ contract Snow is ERC20, Ownable {
             revert S__Timer();
         }
 
-        // bug possible reentrancy
+        // note: no reentrancy risk; _mint has no external calls
         _mint(msg.sender, 1);
-
+        // note 019: SnowEarned not emitted
         s_earnTimer = block.timestamp;
     }
 
     function collectFee() external onlyCollector {
-        // note check if there are funds to collect first
+        // note 016: check if there are funds to collect first
         uint256 collection = i_weth.balanceOf(address(this));
-        // note use safetransfer
+        // note 016: use safeTransfer
         i_weth.transfer(s_collector, collection);
 
-        // note check if there are funds to collect first
+        // note 016: check if there are funds to collect first
         (bool collected,) = payable(s_collector).call{value: address(this).balance}("");
         require(collected, "Fee collection failed!!!");
+        // note 019: FeeCollected not emitted
     }
 
-    //note it's better to use a 2 step approach here where the new collector has to accept the role, suggest using a Role based extension
+    // note 017: use 2-step transfer or AccessControl for privilege transfer
     function changeCollector(address _newCollector) external onlyCollector {
         if (_newCollector == address(0)) {
             revert S__ZeroAddress();
